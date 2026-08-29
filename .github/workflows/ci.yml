@@ -64,8 +64,7 @@ jobs:
         run: npm ci
 
       # Informational only for now.
-      # Existing dependency vulnerabilities currently require
-      # breaking upgrades, so this must not block CI.
+      # Existing vulnerabilities currently require breaking upgrades.
       - name: Audit dependencies
         run: |
           npm audit --audit-level=high || {
@@ -260,6 +259,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # Push immutable SHA tags first.
       - name: Push backend image
         run: |
           docker push \
@@ -270,6 +270,7 @@ jobs:
           docker push \
             "${DOCKERHUB_USERNAME}/ministatus-frontend:${GITHUB_SHA}"
 
+      # Update latest only after the immutable images were pushed.
       - name: Tag backend as latest
         run: |
           docker tag \
