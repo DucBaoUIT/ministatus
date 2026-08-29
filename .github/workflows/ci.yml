@@ -157,7 +157,7 @@ jobs:
         run: |
           docker build \
             --pull \
-            --build-arg VITE_API_URL=/api \
+            --build-arg VITE_API_URL="" \
             -t "${{ steps.meta.outputs.frontend }}" \
             ./frontend
 
