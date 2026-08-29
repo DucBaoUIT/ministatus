@@ -74,7 +74,7 @@ jobs:
         working-directory: frontend
 
     env:
-      VITE_API_URL: http://localhost:3000
+      VITE_API_URL: http://103.90.224.155:3000
 
     steps:
       - name: Checkout
@@ -94,26 +94,53 @@ jobs:
         run: npm run build
 
   docker:
-    name: Docker Build
+    name: Docker Build & Push
     runs-on: ubuntu-latest
 
     needs:
       - backend
       - frontend
 
+    permissions:
+      contents: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set image tags
+        id: meta
+        run: |
+          echo "backend=${{ secrets.DOCKERHUB_USERNAME }}/ministatus-backend:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "frontend=${{ secrets.DOCKERHUB_USERNAME }}/ministatus-frontend:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
       - name: Build backend image
         run: |
           docker build \
-            -t ministatus-backend:${{ github.sha }} \
+            -t "${{ steps.meta.outputs.backend }}" \
+            -t "${{ secrets.DOCKERHUB_USERNAME }}/ministatus-backend:latest" \
             ./backend
 
       - name: Build frontend image
         run: |
           docker build \
-            --build-arg VITE_API_URL=http://localhost:3000 \
-            -t ministatus-frontend:${{ github.sha }} \
+            --build-arg VITE_API_URL=http://103.90.224.155:3000 \
+            -t "${{ steps.meta.outputs.frontend }}" \
+            -t "${{ secrets.DOCKERHUB_USERNAME }}/ministatus-frontend:latest" \
             ./frontend
+
+      - name: Push backend image
+        run: |
+          docker push "${{ steps.meta.outputs.backend }}"
+          docker push "${{ secrets.DOCKERHUB_USERNAME }}/ministatus-backend:latest"
+
+      - name: Push frontend image
+        run: |
+          docker push "${{ steps.meta.outputs.frontend }}"
+          docker push "${{ secrets.DOCKERHUB_USERNAME }}/ministatus-frontend:latest"
