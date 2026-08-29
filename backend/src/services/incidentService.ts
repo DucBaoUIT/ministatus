@@ -50,7 +50,7 @@ export async function updateIncident(id: string, input: UpdateIncidentInput) {
   // and clear it if the incident is reopened.
   if (input.status === "RESOLVED") {
     data.resolvedAt = new Date();
-  } else if (input.status && input.status !== "RESOLVED") {
+  } else if (input.status) {
     data.resolvedAt = null;
   }
 
