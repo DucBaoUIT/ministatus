@@ -38,7 +38,14 @@ RUN apt-get update \
 
 COPY package*.json ./
 
-RUN npm ci --omit=dev
+# Install only production dependencies.
+# npm is needed temporarily during image construction,
+# then removed from the runtime image.
+RUN npm ci --omit=dev \
+    && npm cache clean --force \
+    && rm -rf /usr/local/lib/node_modules/npm \
+              /usr/local/bin/npm \
+              /usr/local/bin/npx
 
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
@@ -46,5 +53,7 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/dist ./dist
 
 EXPOSE 3000
+
+USER node
 
 CMD ["node", "dist/index.js"]
