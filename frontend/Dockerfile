@@ -22,6 +22,10 @@ RUN npm run build
 # ============================================
 FROM nginx:1.27-alpine AS production
 
+RUN apk update \
+    && apk upgrade \
+    && rm -rf /var/cache/apk/*
+
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 EXPOSE 80
