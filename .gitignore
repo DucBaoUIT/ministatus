@@ -28,3 +28,7 @@ coverage/
 # Prisma local artifacts
 *.db
 *.db-journal
+
+
+# TypeScript
+*.tsbuildinfo
