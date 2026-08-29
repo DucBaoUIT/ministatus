@@ -13,9 +13,31 @@ jobs:
     name: Backend CI
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ministatus
+          POSTGRES_PASSWORD: ministatus
+          POSTGRES_DB: ministatus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ministatus -d ministatus"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     defaults:
       run:
         working-directory: backend
+
+    env:
+      DATABASE_URL: postgresql://ministatus:ministatus@localhost:5432/ministatus?schema=public
+      NODE_ENV: test
+      PORT: 3000
+      APP_VERSION: ci
+      CORS_ORIGIN: http://localhost:5173
 
     steps:
       - name: Checkout
@@ -34,6 +56,9 @@ jobs:
       - name: Generate Prisma Client
         run: npm run prisma:generate
 
+      - name: Run database migrations
+        run: npm run prisma:deploy
+
       - name: Run tests
         run: npm test
 
@@ -47,6 +72,9 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+
+    env:
+      VITE_API_URL: http://localhost:3000
 
     steps:
       - name: Checkout
@@ -68,6 +96,7 @@ jobs:
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
+
     needs:
       - backend
       - frontend
@@ -85,6 +114,6 @@ jobs:
       - name: Build frontend image
         run: |
           docker build \
-            --build-arg VITE_API_URL=http://103.90.224.155:3000 \
+            --build-arg VITE_API_URL=http://localhost:3000 \
             -t ministatus-frontend:${{ github.sha }} \
             ./frontend
