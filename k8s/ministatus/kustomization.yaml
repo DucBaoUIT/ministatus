@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - backend.yaml
+  - frontend.yaml
+  - ingress.yaml
+  - certificate.yaml
+
+images:
+  - name: 21520623/ministatus-backend
+    newTag: 444368fcfb5e8086da12efdc956d947778dfcdfb
+  - name: 21520623/ministatus-frontend
+    newTag: 444368fcfb5e8086da12efdc956d947778dfcdfb

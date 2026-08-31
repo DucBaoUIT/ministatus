@@ -1,0 +1,14 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ministatus-tls
+  namespace: ministatus
+spec:
+  secretName: ministatus-tls
+
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+
+  dnsNames:
+    - ministatus.ducbao.space

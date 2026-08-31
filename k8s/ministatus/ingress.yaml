@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ministatus
+  namespace: ministatus
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+spec:
+  ingressClassName: nginx
+
+  tls:
+    - hosts:
+        - ministatus.ducbao.space
+      secretName: ministatus-tls
+
+  rules:
+    - host: ministatus.ducbao.space
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: ministatus-backend
+                port:
+                  number: 3000
+
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ministatus-frontend
+                port:
+                  number: 80
