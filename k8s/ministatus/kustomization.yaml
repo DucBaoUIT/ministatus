@@ -9,6 +9,6 @@ resources:
 
 images:
   - name: 21520623/ministatus-backend
-    newTag: 444368fcfb5e8086da12efdc956d947778dfcdfb
+    newTag: 97059e21d29655d7298f86778c201b70a9c96c3b
   - name: 21520623/ministatus-frontend
-    newTag: 444368fcfb5e8086da12efdc956d947778dfcdfb
+    newTag: 97059e21d29655d7298f86778c201b70a9c96c3b
