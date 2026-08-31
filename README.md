@@ -195,3 +195,4 @@ Tests cover `/api/health`, `/api/ready`, `/api/runtime`, and CRUD flows for serv
 - Frontend and backend are fully decoupled (separate processes/ports, no server-side rendering coupling), so they can become two separate Deployments/Services later.
 
 Explicitly **not** included yet (by design, for a later phase): Dockerfiles, Docker Compose, Kubernetes manifests, Helm/Kustomize, ArgoCD, CI/CD pipelines, reverse proxy config, monitoring stack, and complex auth.
+
