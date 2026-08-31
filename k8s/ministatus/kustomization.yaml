@@ -6,6 +6,7 @@ resources:
   - frontend.yaml
   - ingress.yaml
   - certificate.yaml
+  - hpa.yaml
 
 images:
   - name: 21520623/ministatus-backend
