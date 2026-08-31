@@ -7,6 +7,7 @@ resources:
   - ingress.yaml
   - certificate.yaml
   - hpa.yaml
+  - pdb.yaml
 
 images:
   - name: 21520623/ministatus-backend
