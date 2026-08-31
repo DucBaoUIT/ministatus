@@ -1,0 +1,49 @@
+name: Frontend CI
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  build:
+    name: Frontend Build
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    env:
+      VITE_API_URL: http://103.90.224.155:3000
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Informational only for now.
+      - name: Audit dependencies
+        run: |
+          npm audit --audit-level=high || {
+            echo "::warning::Frontend dependency audit reported vulnerabilities."
+            echo "::warning::Review and upgrade dependencies separately."
+          }
+
+      - name: Build
+        run: npm run build

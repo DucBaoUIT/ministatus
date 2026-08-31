@@ -1,0 +1,81 @@
+name: Backend CI
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  test:
+    name: Backend Test & Build
+
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+
+        env:
+          POSTGRES_USER: ministatus
+          POSTGRES_PASSWORD: ministatus
+          POSTGRES_DB: ministatus
+
+        ports:
+          - 5432:5432
+
+        options: >-
+          --health-cmd="pg_isready -U ministatus -d ministatus"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      DATABASE_URL: postgresql://ministatus:ministatus@localhost:5432/ministatus?schema=public
+      NODE_ENV: test
+      PORT: 3000
+      APP_VERSION: ci
+      CORS_ORIGIN: http://localhost:5173
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Informational only for now.
+      # Existing vulnerabilities currently require breaking upgrades.
+      - name: Audit dependencies
+        run: |
+          npm audit --audit-level=high || {
+            echo "::warning::Backend dependency audit reported vulnerabilities."
+            echo "::warning::Review and upgrade dependencies separately."
+          }
+
+      - name: Generate Prisma Client
+        run: npm run prisma:generate
+
+      - name: Run database migrations
+        run: npm run prisma:deploy
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
