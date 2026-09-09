@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - backend.yaml
+  - servicemonitor-backend.yaml
   - frontend.yaml
   - ingress.yaml
   - certificate.yaml
