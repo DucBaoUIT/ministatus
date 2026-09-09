@@ -1,198 +1,1248 @@
 # MiniStatus
 
-A minimal infrastructure status page: a public status page plus an admin dashboard for managing services and incidents. Built to be simple today and easy to containerize / deploy on Kubernetes later (no Kubernetes, Docker, or CI config is included in this phase).
+> A lightweight infrastructure status page with a public status dashboard, an admin interface, Kubernetes deployment, GitOps delivery, and Prometheus/Grafana observability.
 
-## Architecture
+MiniStatus started as a small React + Express + PostgreSQL application and was extended into a complete DevOps/Kubernetes deployment project on an OpenStack Magnum cluster.
+
+The project demonstrates the path from **application development → testing → containerization → CI/CD → Kubernetes → GitOps → observability**.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Application](#application)
+- [Technology Stack](#technology-stack)
+- [Repository Structure](#repository-structure)
+- [Local Development](#local-development)
+- [Environment Variables](#environment-variables)
+- [API](#api)
+- [Testing](#testing)
+- [Containerization](#containerization)
+- [CI/CD](#cicd)
+- [Kubernetes](#kubernetes)
+- [GitOps with Argo CD](#gitops-with-argo-cd)
+- [Ingress and TLS](#ingress-and-tls)
+- [Monitoring and Observability](#monitoring-and-observability)
+- [Prometheus Metrics](#prometheus-metrics)
+- [Security](#security)
+- [Design Decisions](#design-decisions)
+- [Deployment Flow](#deployment-flow)
+- [Operational Notes](#operational-notes)
+- [Project Status](#project-status)
+- [Future Improvements](#future-improvements)
+
+---
+
+## Overview
+
+MiniStatus provides:
+
+- A public status page for services.
+- An admin dashboard for managing services and incidents.
+- A REST API built with Node.js and Express.
+- PostgreSQL persistence through Prisma.
+- Container images for frontend and backend.
+- Automated CI/CD with GitHub Actions.
+- Kubernetes deployment on OpenStack Magnum.
+- GitOps reconciliation with Argo CD.
+- HTTPS ingress.
+- Prometheus metrics and ServiceMonitor integration.
+- Grafana dashboards for infrastructure and application observability.
+
+The application intentionally remains simple: it is **not a microservices architecture**.
 
 ```text
-Browser
-   |
-   v
-Frontend (React + Vite, static assets)
-   |  HTTP (VITE_API_URL)
-   v
-Backend API (Node.js + Express)
-   |  Prisma
-   v
-PostgreSQL
+                    ┌──────────────────────┐
+                    │       Browser        │
+                    └──────────┬───────────┘
+                               │ HTTPS
+                               ▼
+                    ┌──────────────────────┐
+                    │ Kubernetes Ingress   │
+                    │     NGINX / TLS      │
+                    └──────────┬───────────┘
+                               │
+                  ┌────────────┴────────────┐
+                  │                         │
+                  ▼                         ▼
+        ┌─────────────────┐       ┌─────────────────┐
+        │ Frontend        │       │ Backend API     │
+        │ React + Vite    │       │ Express + TS    │
+        └─────────────────┘       └────────┬────────┘
+                                           │ Prisma
+                                           ▼
+                                  ┌─────────────────┐
+                                  │ PostgreSQL       │
+                                  └─────────────────┘
+
+                         Observability
+                              │
+                              ▼
+                    ┌──────────────────────┐
+                    │ Prometheus           │
+                    │ ServiceMonitor       │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ Grafana              │
+                    └──────────────────────┘
 ```
 
-No microservices — one frontend, one backend API, one database.
+---
 
-## Tech stack
+## Application
 
-- **Frontend**: React, TypeScript, Vite, Tailwind CSS, React Router
-- **Backend**: Node.js, TypeScript, Express
-- **Database**: PostgreSQL
-- **ORM**: Prisma
+### Public status page
 
-## Project structure
+The public UI displays the current state of configured services and incidents.
+
+Supported service states:
+
+```text
+OPERATIONAL
+DEGRADED
+PARTIAL_OUTAGE
+MAJOR_OUTAGE
+```
+
+### Admin dashboard
+
+The admin UI provides CRUD operations for:
+
+- Services
+- Incidents
+- Service status
+- Incident severity
+- Incident lifecycle
+
+Incident states:
+
+```text
+INVESTIGATING
+IDENTIFIED
+MONITORING
+RESOLVED
+```
+
+When an incident is moved to `RESOLVED`, the backend automatically manages `resolvedAt`. If it is moved back to another state, the timestamp is cleared.
+
+---
+
+## Technology Stack
+
+### Application
+
+| Component | Technology |
+|---|---|
+| Frontend | React + TypeScript |
+| Build tool | Vite |
+| Styling | Tailwind CSS |
+| Routing | React Router |
+| Backend | Node.js + TypeScript |
+| HTTP framework | Express |
+| ORM | Prisma |
+| Database | PostgreSQL |
+| Metrics | prom-client |
+
+### DevOps / Infrastructure
+
+| Component | Technology |
+|---|---|
+| Containers | Docker |
+| CI/CD | GitHub Actions |
+| Image registry | Docker Hub |
+| Container orchestration | Kubernetes |
+| Kubernetes platform | OpenStack Magnum |
+| CNI | Cilium |
+| Ingress | ingress-nginx |
+| TLS | cert-manager / Let's Encrypt |
+| GitOps | Argo CD |
+| Monitoring | Prometheus |
+| Visualization | Grafana |
+| Kubernetes metrics stack | kube-prometheus-stack |
+| Storage integration | Cinder CSI |
+
+---
+
+## Repository Structure
 
 ```text
 ministatus/
-├── frontend/          React + Vite app (public status page + admin dashboard)
+├── frontend/
 │   ├── src/
-│   │   ├── pages/          StatusPage.tsx, admin/*
-│   │   ├── components/     StatusBadge.tsx
-│   │   ├── lib/api.ts      fetch client (VITE_API_URL)
-│   │   └── types/          shared TS types
+│   │   ├── pages/
+│   │   │   ├── StatusPage.tsx
+│   │   │   └── admin/
+│   │   ├── components/
+│   │   ├── lib/
+│   │   │   └── api.ts
+│   │   └── types/
 │   └── .env.example
 │
-├── backend/            Express + Prisma API
+├── backend/
 │   ├── src/
-│   │   ├── routes/         services.ts, incidents.ts, system.ts
-│   │   ├── controllers/    thin HTTP handlers
-│   │   ├── services/       business logic + Prisma calls
-│   │   ├── middleware/     logger.ts, errorHandler.ts
-│   │   ├── lib/prisma.ts   Prisma client singleton
-│   │   ├── app.ts          Express app factory (used by tests too)
-│   │   └── index.ts        server entrypoint + graceful shutdown
+│   │   ├── routes/
+│   │   │   ├── services.ts
+│   │   │   ├── incidents.ts
+│   │   │   └── system.ts
+│   │   ├── controllers/
+│   │   ├── services/
+│   │   ├── middleware/
+│   │   ├── lib/
+│   │   │   └── prisma.ts
+│   │   ├── app.ts
+│   │   └── index.ts
 │   ├── prisma/
 │   │   ├── schema.prisma
 │   │   └── seed.ts
 │   └── .env.example
 │
+├── k8s/
+│   ├── ministatus/
+│   │   ├── backend.yaml
+│   │   ├── frontend.yaml
+│   │   ├── ingress.yaml
+│   │   ├── secret.yaml
+│   │   ├── servicemonitor-backend.yaml
+│   │   └── kustomization.yaml
+│   └── monitoring/
+│
+├── .github/
+│   └── workflows/
+│       ├── backend-ci.yml
+│       ├── frontend-ci.yml
+│       ├── ci.yml
+│       └── docker-release.yml
+│
 ├── README.md
-├── .gitignore
-└── .env.example
+└── .gitignore
 ```
 
-## Requirements
+---
+
+## Local Development
+
+### Requirements
 
 - Node.js 20+
 - PostgreSQL 14+
 - npm
 
-## Setup
+The production CI pipeline uses Node.js 22.
+
+### Install dependencies
 
 ```bash
-cd backend && npm install
-cd ../frontend && npm install
+cd backend
+npm install
+
+cd ../frontend
+npm install
 ```
 
-## Environment
+### Configure environment
 
 ```bash
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
 ```
 
-Edit `backend/.env` and point `DATABASE_URL` at your PostgreSQL instance, e.g.:
+Example backend configuration:
 
-```text
+```env
 DATABASE_URL="postgresql://ministatus:ministatus@localhost:5432/ministatus?schema=public"
+PORT=3000
+NODE_ENV=development
+APP_VERSION=0.1.0
+CORS_ORIGIN=http://localhost:5173
 ```
 
-`frontend/.env` just needs `VITE_API_URL` pointing at the backend (default `http://localhost:3000`).
+Example frontend configuration:
 
-## Database
+```env
+VITE_API_URL=http://localhost:3000
+```
+
+### Initialize the database
 
 From `backend/`:
 
 ```bash
-npx prisma migrate dev --name init   # creates tables
-npx prisma db seed                   # seeds Website, API, Database, Kubernetes + sample incidents
+npx prisma migrate dev --name init
+npx prisma db seed
 ```
 
-## Development
+The seed creates example services such as:
 
-Backend (from `backend/`):
+```text
+Website
+API
+Database
+Kubernetes
+```
+
+along with sample incidents.
+
+### Run the backend
 
 ```bash
-npm run dev      # http://localhost:3000
+cd backend
+npm run dev
 ```
 
-Frontend (from `frontend/`):
+Backend:
+
+```text
+http://localhost:3000
+```
+
+### Run the frontend
 
 ```bash
-npm run dev      # http://localhost:5173
+cd frontend
+npm run dev
 ```
 
-Visit `http://localhost:5173/` for the public status page and `http://localhost:5173/admin` for the admin dashboard.
+Frontend:
+
+```text
+http://localhost:5173
+```
+
+Public status page:
+
+```text
+http://localhost:5173/
+```
+
+Admin dashboard:
+
+```text
+http://localhost:5173/admin
+```
+
+---
+
+## Environment Variables
+
+### Backend
+
+| Variable | Description | Default |
+|---|---|---|
+| `DATABASE_URL` | PostgreSQL connection string | Required |
+| `PORT` | HTTP port | `3000` |
+| `NODE_ENV` | Runtime environment | `development` |
+| `APP_VERSION` | Application/image version exposed by `/api/runtime` | — |
+| `CORS_ORIGIN` | Allowed browser origin | `*` |
+
+### Frontend
+
+| Variable | Description | Default |
+|---|---|---|
+| `VITE_API_URL` | Backend API base URL | `http://localhost:3000` |
+
+Secrets and environment-specific values should not be committed to Git.
+
+---
 
 ## API
 
+### System endpoints
+
 ```text
-GET    /api/health              liveness probe, always 200 if process is up
-GET    /api/ready                readiness probe, checks PostgreSQL connectivity
-GET    /api/runtime               app/version/host/node/uptime info
-
-GET    /api/services              list services
-GET    /api/services/:id          get one service
-POST   /api/services              create a service
-PATCH  /api/services/:id          update a service (status, description, uptime, enabled, ...)
-DELETE /api/services/:id          delete a service
-
-GET    /api/incidents             list incidents
-GET    /api/incidents/:id         get one incident
-POST   /api/incidents             create an incident
-PATCH  /api/incidents/:id         update an incident (status transitions to RESOLVED auto-stamp resolvedAt)
-DELETE /api/incidents/:id         delete an incident
+GET /api/health
+GET /api/ready
+GET /api/runtime
+GET /metrics
 ```
 
-All errors are returned as:
+### Services
+
+```text
+GET    /api/services
+GET    /api/services/:id
+POST   /api/services
+PATCH  /api/services/:id
+DELETE /api/services/:id
+```
+
+### Incidents
+
+```text
+GET    /api/incidents
+GET    /api/incidents/:id
+POST   /api/incidents
+PATCH  /api/incidents/:id
+DELETE /api/incidents/:id
+```
+
+### Error format
+
+API errors use a consistent structure:
 
 ```json
-{ "error": { "code": "SERVICE_NOT_FOUND", "message": "Service not found" } }
+{
+  "error": {
+    "code": "SERVICE_NOT_FOUND",
+    "message": "Service not found"
+  }
+}
 ```
 
-## Health check
+### Health endpoints
 
-- `GET /api/health` — is the process alive? No dependencies checked. Intended for a future Kubernetes `livenessProbe`.
-- `GET /api/ready` — is the app ready to serve traffic? Runs `SELECT 1` against PostgreSQL; returns `503` with `{"status":"not_ready","database":"disconnected"}` if the database is unreachable. Intended for a future Kubernetes `readinessProbe`.
+`/api/health` is a lightweight liveness endpoint. It checks that the application process is alive.
 
-## Database schema
+`/api/ready` checks PostgreSQL connectivity and is intended for Kubernetes readiness checks.
 
-**Service**: `id, name, description, status (OPERATIONAL | DEGRADED | PARTIAL_OUTAGE | MAJOR_OUTAGE), uptime, enabled, createdAt, updatedAt`
+Example not-ready response:
 
-**Incident**: `id, title, description, severity (LOW | MEDIUM | HIGH | CRITICAL), status (INVESTIGATING | IDENTIFIED | MONITORING | RESOLVED), createdAt, updatedAt, resolvedAt`
+```json
+{
+  "status": "not_ready",
+  "database": "disconnected"
+}
+```
 
-## Environment variables
+---
 
-Backend (`backend/.env`):
+## Database Schema
+
+### Service
 
 ```text
-DATABASE_URL   PostgreSQL connection string (required)
-PORT           HTTP port (default 3000)
-NODE_ENV       development | production | test
-APP_VERSION    surfaced by GET /api/runtime; set to image tag/git SHA in real deploys
-CORS_ORIGIN    allowed browser origin (default *)
+id
+name
+description
+status
+uptime
+enabled
+createdAt
+updatedAt
 ```
 
-Frontend (`frontend/.env`):
+Service status:
 
 ```text
-VITE_API_URL   base URL of the backend API (default http://localhost:3000)
+OPERATIONAL
+DEGRADED
+PARTIAL_OUTAGE
+MAJOR_OUTAGE
 ```
 
-## How to run tests
+### Incident
 
-From `backend/`:
+```text
+id
+title
+description
+severity
+status
+createdAt
+updatedAt
+resolvedAt
+```
+
+Incident severity:
+
+```text
+LOW
+MEDIUM
+HIGH
+CRITICAL
+```
+
+Incident status:
+
+```text
+INVESTIGATING
+IDENTIFIED
+MONITORING
+RESOLVED
+```
+
+---
+
+## Testing
+
+Backend tests are run with:
 
 ```bash
+cd backend
 npm test
 ```
 
-Tests cover `/api/health`, `/api/ready`, `/api/runtime`, and CRUD flows for services and incidents. The CRUD tests need a reachable `DATABASE_URL` (point it at a disposable/test database).
+Tests cover:
 
-## Key technical decisions
+- `/api/health`
+- `/api/ready`
+- `/api/runtime`
+- Service CRUD
+- Incident CRUD
 
-- **Layered backend**: routes → controllers (thin HTTP glue) → services (business logic + Prisma). Keeps handlers testable and logic reusable.
-- **Single Prisma client instance** (`src/lib/prisma.ts`), reused across the app instead of instantiated per request/module.
-- **Centralized error handling** via a custom `ApiError` class and one Express error-handling middleware, so every error returns the same `{ error: { code, message } }` shape and stack traces never leak in production.
-- **Structured JSON request logs** written to stdout only (no file logging), since a container runtime/Kubernetes is expected to collect stdout/stderr later.
-- **Graceful shutdown**: on `SIGTERM`/`SIGINT` the HTTP server stops accepting new connections, in-flight requests finish, the Prisma connection is closed, then the process exits — important for clean Kubernetes rolling updates.
-- **No hard-coded config**: DB credentials, port, app version, CORS origin, and the frontend's API URL are all environment variables, so the same build/image can move between environments.
-- **`resolvedAt` auto-management**: updating an incident's status to `RESOLVED` stamps `resolvedAt`; moving it back to a non-resolved status clears it — kept in the service layer, not the frontend, so it's consistent regardless of client.
+CRUD tests require a reachable PostgreSQL database.
 
-## What's already prepared for a future Kubernetes deployment
+The CI pipeline runs the backend and frontend checks automatically on pull requests and pushes to `main`.
 
-- `/api/health` and `/api/ready` are split (liveness vs. readiness) and ready to wire into `livenessProbe`/`readinessProbe`.
-- `/api/runtime` exposes hostname, Node version, platform, uptime, and an env-configurable `APP_VERSION` — useful for confirming which pod/replica/version you're hitting during a rollout.
-- All config (DB URL, port, version, CORS origin, frontend API URL) is environment-variable driven, matching how ConfigMaps/Secrets would be injected.
-- Graceful shutdown on `SIGTERM` matches how Kubernetes terminates pods during rolling updates/scaling.
-- Logs go only to stdout/stderr, matching how container log collection works.
-- Frontend and backend are fully decoupled (separate processes/ports, no server-side rendering coupling), so they can become two separate Deployments/Services later.
+---
 
-Explicitly **not** included yet (by design, for a later phase): Dockerfiles, Docker Compose, Kubernetes manifests, Helm/Kustomize, ArgoCD, CI/CD pipelines, reverse proxy config, monitoring stack, and complex auth.
+## Containerization
 
+The backend is packaged as a multi-stage Docker image.
+
+The production image:
+
+- Uses Node.js 22.
+- Installs production dependencies only.
+- Generates Prisma client during the build.
+- Runs as the non-root `node` user.
+- Exposes port `3000`.
+- Starts with the compiled application.
+
+The frontend is built into a production container image suitable for Kubernetes deployment.
+
+Images are published to Docker Hub using Git SHA-based tags.
+
+Example image naming:
+
+```text
+21520623/ministatus-backend:<git-sha>
+21520623/ministatus-frontend:<git-sha>
+```
+
+Using immutable Git SHA tags makes it possible to identify exactly which source revision is deployed.
+
+---
+
+## CI/CD
+
+GitHub Actions is responsible for the application delivery pipeline.
+
+### CI
+
+The pipeline validates:
+
+```text
+Git push / Pull Request
+        │
+        ├── Backend CI
+        │     ├── npm ci
+        │     ├── Prisma
+        │     ├── tests
+        │     └── build
+        │
+        └── Frontend CI
+              ├── npm ci
+              └── build
+```
+
+### Container release
+
+On the main branch, the release workflow:
+
+1. Builds backend and frontend images.
+2. Tags images with the Git SHA.
+3. Saves build artifacts.
+4. Runs Trivy vulnerability scanning.
+5. Pushes images to Docker Hub.
+6. Updates the Kubernetes Kustomize image references.
+7. Commits the new image references back to `main`.
+
+The Trivy scan is configured to fail the release for relevant `HIGH` and `CRITICAL` vulnerabilities according to the workflow configuration.
+
+### GitOps separation
+
+The important distinction is:
+
+```text
+Application source
+        │
+        ▼
+GitHub Actions
+        │
+        ▼
+Docker image
+        │
+        ▼
+Kubernetes manifest updated in Git
+        │
+        ▼
+Argo CD
+        │
+        ▼
+Kubernetes cluster
+```
+
+Kubernetes state is therefore driven from Git rather than manually changing Deployments with `kubectl`.
+
+---
+
+## Kubernetes
+
+The application is deployed to a Kubernetes cluster provisioned with OpenStack Magnum.
+
+The cluster used during the project contained:
+
+```text
+1 control-plane node
+2 worker nodes
+```
+
+The application namespace is:
+
+```text
+ministatus
+```
+
+The deployment contains separate frontend and backend workloads.
+
+Conceptually:
+
+```text
+ministatus namespace
+
+Frontend Deployment
+    └── 2 replicas
+         │
+         ▼
+Frontend Service
+
+Backend Deployment
+    └── 2 replicas
+         │
+         ▼
+Backend Service :3000
+         │
+         ▼
+PostgreSQL
+```
+
+The backend Service exposes a named `http` port so that the Prometheus `ServiceMonitor` can reference it.
+
+### Kubernetes health probes
+
+The backend provides endpoints suitable for:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+
+readinessProbe:
+  httpGet:
+    path: /api/ready
+    port: 3000
+```
+
+### Configuration
+
+Application configuration is injected through Kubernetes configuration/secret resources rather than hard-coded into the image.
+
+The Git repository contains the Kubernetes manifests under:
+
+```text
+k8s/ministatus/
+```
+
+Kustomize is used to compose the application manifests.
+
+---
+
+## GitOps with Argo CD
+
+Argo CD continuously watches the Git repository and the `k8s/ministatus` path.
+
+The MiniStatus Argo CD application is configured for automated synchronization with:
+
+```text
+prune: true
+selfHeal: true
+CreateNamespace: true
+```
+
+This means:
+
+- Git is the desired state.
+- Argo CD detects manifest changes.
+- Kubernetes is reconciled automatically.
+- Resources removed from Git can be pruned.
+- Manual drift can be corrected by self-healing.
+
+### Important operational rule
+
+Do **not** use commands such as:
+
+```bash
+kubectl set image deployment/...
+```
+
+as the normal deployment mechanism.
+
+Such a change is outside the GitOps source of truth and can be reverted by Argo CD.
+
+Instead:
+
+```text
+Change code
+   ↓
+Push to Git
+   ↓
+CI builds image
+   ↓
+GitOps manifest gets new SHA
+   ↓
+Argo CD syncs
+   ↓
+Kubernetes rollout
+```
+
+---
+
+## Ingress and TLS
+
+The application is exposed through Kubernetes Ingress.
+
+The intended external routing model is:
+
+```text
+HTTPS request
+      │
+      ▼
+Ingress
+  ├── /    → frontend
+  └── /api → backend
+```
+
+TLS certificates are managed with cert-manager and Let's Encrypt.
+
+The deployed environment also includes a Grafana hostname:
+
+```text
+https://grafana.ducbao.space
+```
+
+The Grafana endpoint is served through ingress-nginx with a Let's Encrypt certificate.
+
+---
+
+## Monitoring and Observability
+
+The cluster uses `kube-prometheus-stack`, providing:
+
+- Prometheus
+- Grafana
+- Kubernetes metric collection
+- Node metrics
+- kube-state-metrics
+- ServiceMonitor support
+
+The monitoring stack is managed through Argo CD.
+
+### Application monitoring
+
+MiniStatus backend exposes:
+
+```text
+GET /metrics
+```
+
+The endpoint is implemented with `prom-client`.
+
+The Kubernetes `ServiceMonitor` selects the backend Service:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ministatus-backend
+  namespace: ministatus
+  labels:
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: ministatus-backend
+  namespaceSelector:
+    matchNames:
+      - ministatus
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+```
+
+This allows Prometheus to discover the backend automatically.
+
+### Infrastructure monitoring
+
+The monitoring stack also exposes Kubernetes/node metrics such as:
+
+- CPU
+- Memory
+- Pod status
+- Node status
+- Container metrics
+- Kubernetes object state
+
+Grafana is used to visualize these metrics.
+
+---
+
+## Prometheus Metrics
+
+MiniStatus exposes default Node.js/process metrics through `prom-client`.
+
+Examples include metrics related to:
+
+```text
+process CPU
+process memory
+Node.js heap
+event loop
+file descriptors
+```
+
+Custom application metrics include:
+
+```text
+http_requests_total
+http_request_duration_seconds
+```
+
+The custom metrics use:
+
+```text
+method
+route
+status_code
+```
+
+as labels.
+
+Useful PromQL examples:
+
+### Request rate
+
+```promql
+sum(
+  rate(http_requests_total{namespace="ministatus"}[5m])
+)
+```
+
+### 5xx rate
+
+```promql
+sum(
+  rate(
+    http_requests_total{
+      namespace="ministatus",
+      status_code=~"5.."
+    }[5m]
+  )
+)
+```
+
+### P95 request latency
+
+```promql
+histogram_quantile(
+  0.95,
+  sum(
+    rate(
+      http_request_duration_seconds_bucket{
+        namespace="ministatus"
+      }[5m]
+    )
+  ) by (le)
+)
+```
+
+### Backend CPU
+
+```promql
+sum(
+  rate(
+    process_cpu_seconds_total{
+      namespace="ministatus"
+    }[5m]
+  )
+)
+```
+
+### Backend resident memory
+
+```promql
+sum(
+  process_resident_memory_bytes{
+    namespace="ministatus"
+  }
+)
+```
+
+### Target health
+
+```promql
+up{namespace="ministatus"}
+```
+
+---
+
+## Security
+
+The project includes several security-oriented practices.
+
+### Container security
+
+- Production images use a non-root runtime user.
+- Development dependencies are excluded from the production backend image.
+- Trivy scans release images.
+- Images are tagged with immutable Git SHAs.
+
+### Application security
+
+- Database credentials are provided through environment variables.
+- Secrets are not intended to be stored directly in Git.
+- Centralized error handling prevents stack traces from being exposed in production.
+- CORS is configurable by environment.
+- API configuration is not hard-coded into the backend.
+
+### Kubernetes / infrastructure
+
+The Kubernetes environment uses:
+
+- Cilium networking.
+- OpenStack Security Groups.
+- ingress-nginx.
+- TLS certificates through cert-manager.
+- Kubernetes Secrets for sensitive configuration.
+
+During deployment, east-west connectivity between Kubernetes nodes was found to depend on the OpenStack/Neutron Security Group configuration. The final design should restrict cluster networking to the required internal CIDRs rather than leaving broad allow-all rules in place.
+
+---
+
+## Design Decisions
+
+### Layered backend
+
+The backend follows:
+
+```text
+Routes
+  ↓
+Controllers
+  ↓
+Services
+  ↓
+Prisma
+  ↓
+PostgreSQL
+```
+
+Controllers remain thin while business logic lives in the service layer.
+
+### Single Prisma client
+
+A shared Prisma client is used rather than creating a new database client for every request.
+
+### Centralized error handling
+
+A custom error type and centralized Express middleware provide a consistent API error structure.
+
+### Structured logs
+
+Request logs are emitted as JSON to stdout.
+
+This is intentional for containerized environments where the platform collects stdout/stderr.
+
+### Graceful shutdown
+
+The backend handles:
+
+```text
+SIGTERM
+SIGINT
+```
+
+and shuts down the HTTP server and Prisma connection cleanly.
+
+This is important for Kubernetes rolling updates and pod termination.
+
+### Environment-driven configuration
+
+Database credentials, ports, CORS configuration, application version, and frontend API configuration are controlled through environment variables.
+
+The same container image can therefore be promoted between environments without rebuilding it for environment-specific configuration.
+
+---
+
+## Deployment Flow
+
+The complete delivery path is:
+
+```text
+Developer
+   │
+   │ git push
+   ▼
+GitHub
+   │
+   ├───────────────┐
+   │               │
+   ▼               ▼
+CI              Docker Build
+tests/build        │
+   │               ▼
+   │           Trivy Scan
+   │               │
+   │               ▼
+   │          Docker Hub
+   │               │
+   │               ▼
+   │      Update Kustomize SHA
+   │               │
+   │               ▼
+   └──────────► Git main
+                   │
+                   ▼
+                Argo CD
+                   │
+                   ▼
+              Kubernetes
+                   │
+          ┌────────┴────────┐
+          ▼                 ▼
+      Frontend           Backend
+                            │
+                            ▼
+                       PostgreSQL
+
+              ┌─────────────────────┐
+              │     Prometheus      │
+              └──────────┬──────────┘
+                         │
+                         ▼
+                    ┌─────────┐
+                    │ Grafana │
+                    └─────────┘
+```
+
+This provides a clear separation between:
+
+- Source control
+- Continuous integration
+- Image creation
+- Image security scanning
+- Container registry
+- GitOps desired state
+- Kubernetes reconciliation
+- Monitoring
+
+---
+
+## Operational Notes
+
+### GitOps commits can move `main`
+
+The Docker release workflow updates the Kubernetes image tag and commits that change back to the repository.
+
+As a result, a local checkout can become behind `origin/main` even immediately after a local commit.
+
+Before pushing a new change, use:
+
+```bash
+git fetch origin main
+git rebase origin/main
+git push origin main
+```
+
+Avoid force-pushing over the shared `main` branch.
+
+### Kubernetes state
+
+For normal deployments, inspect:
+
+```bash
+kubectl get pods -n ministatus
+kubectl get svc -n ministatus
+kubectl get ingress -n ministatus
+kubectl get servicemonitor -n ministatus
+```
+
+Check Argo CD:
+
+```bash
+kubectl get application ministatus -n argocd
+```
+
+### Application metrics
+
+Verify the endpoint from inside the cluster or through an appropriate debugging path:
+
+```bash
+curl http://<backend-service>:3000/metrics
+```
+
+### Monitoring
+
+In Grafana Explore, useful initial queries are:
+
+```promql
+up{namespace="ministatus"}
+```
+
+and:
+
+```promql
+http_requests_total{namespace="ministatus"}
+```
+
+---
+
+## Project Status
+
+### Completed
+
+- [x] React/Vite frontend
+- [x] Express/TypeScript backend
+- [x] Prisma + PostgreSQL
+- [x] Service and incident CRUD
+- [x] Health and readiness endpoints
+- [x] Runtime information endpoint
+- [x] Automated backend tests
+- [x] Dockerized backend/frontend
+- [x] GitHub Actions CI
+- [x] Docker image release pipeline
+- [x] Trivy image scanning
+- [x] Docker Hub image publishing
+- [x] Kubernetes deployment
+- [x] Multiple frontend/backend replicas
+- [x] Kubernetes Services
+- [x] Ingress
+- [x] HTTPS/TLS
+- [x] OpenStack Magnum deployment
+- [x] Argo CD GitOps
+- [x] Prometheus
+- [x] Grafana
+- [x] Kubernetes/node observability
+- [x] Backend Prometheus metrics
+- [x] ServiceMonitor integration
+- [x] GitOps-based image updates
+- [x] Graceful application shutdown
+- [x] Non-root backend container
+- [x] Security scanning
+
+### Final state
+
+MiniStatus is no longer only a small CRUD web application. It is a complete practical DevOps project demonstrating how an application can be:
+
+```text
+developed
+   ↓
+tested
+   ↓
+containerized
+   ↓
+scanned
+   ↓
+published
+   ↓
+deployed to Kubernetes
+   ↓
+managed through GitOps
+   ↓
+monitored with Prometheus/Grafana
+```
+
+---
+
+## Future Improvements
+
+The project is considered complete for its current scope. Possible future iterations include:
+
+- Authentication and authorization for the admin dashboard.
+- External PostgreSQL with managed backups.
+- Persistent Prometheus/Grafana storage.
+- Alertmanager notifications.
+- SLO/SLI definitions and alert rules.
+- Automated database migrations during deployment.
+- Horizontal Pod Autoscaling.
+- NetworkPolicies.
+- External Secrets / Vault integration.
+- More comprehensive integration tests.
+- Automated end-to-end tests.
+- Blue/green or canary deployments.
+- Dependency update automation.
+- SBOM generation and image signing.
+- Separate staging and production environments.
+
+These are intentionally outside the completed project scope.
+
+---
+
+## Final Architecture Summary
+
+```text
+                         Internet
+                            │
+                         HTTPS/TLS
+                            │
+                            ▼
+                   ┌──────────────────┐
+                   │  ingress-nginx    │
+                   └────────┬─────────┘
+                            │
+                 ┌──────────┴──────────┐
+                 │                     │
+                 ▼                     ▼
+          ┌─────────────┐       ┌─────────────┐
+          │  Frontend   │       │   Backend   │
+          │  2 replicas │       │  2 replicas │
+          └─────────────┘       └──────┬──────┘
+                                       │
+                                    Prisma
+                                       │
+                                       ▼
+                                ┌─────────────┐
+                                │ PostgreSQL  │
+                                └─────────────┘
+
+                                       │
+                                    /metrics
+                                       │
+                                       ▼
+                                ┌─────────────┐
+                                │ Prometheus  │
+                                └──────┬──────┘
+                                       │
+                                       ▼
+                                ┌─────────────┐
+                                │   Grafana   │
+                                └─────────────┘
+
+GitHub
+  │
+  ▼
+GitHub Actions
+  │
+  ├── CI
+  ├── Docker build
+  ├── Trivy scan
+  ├── Docker Hub
+  └── GitOps manifest update
+          │
+          ▼
+       Argo CD
+          │
+          ▼
+      Kubernetes
+```
+
+---
+
+## License
+
+Add the project's license here if/when one is chosen.
